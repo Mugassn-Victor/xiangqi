@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="JJ象棋绝杀特效原片逐帧分析工具" />
+  <title>JJ象棋绝杀动画检测台</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="app">
+    <div class="shell">
+      <header>
+        <div>
+          <div class="kicker">JJ象棋绝杀特效 · 原生前端版</div>
+          <h1>绝杀动画检测台</h1>
+        </div>
+        <div class="exact">HTML · CSS · JavaScript · 30 FPS</div>
+      </header>
+
+      <div class="layout">
+        <section class="viewer-panel">
+          <div class="video-stage" id="videoStage">
+            <video id="video" preload="auto" playsinline></video>
+            <div class="loading" id="loading"><i></i><span>正在载入参考视频…</span></div>
+            <div class="error-box hidden" id="errorBox">
+              <b>视频载入失败</b>
+              <span>请确认 video.mp4 位于当前目录，或在 app.js 中修改 VIDEO_URL。</span>
+            </div>
+            <div class="top-label"><span id="clipNumber">01</span><span id="clipTitle">片头 / 普通绝杀</span></div>
+            <div class="frame-badge" id="frameBadge">FRAME 0000</div>
+            <button class="center-play" id="centerPlay" aria-label="播放或暂停">▶</button>
+            <button class="fullscreen" id="fullscreen" aria-label="全屏">⛶</button>
+          </div>
+
+          <div class="transport">
+            <input id="progress" type="range" min="0" max="1" step="0.0001" value="0" />
+            <div class="time-row">
+              <span id="currentTime">00:00.00 · 第 0 帧</span>
+              <span id="clipRange">00:00.00 – 00:06.06</span>
+            </div>
+
+            <div class="analysis-tools">
+              <button id="prevFrame">◀| 上一帧</button>
+              <button id="nextFrame">|▶ 下一帧</button>
+              <button id="speed">速度 1×</button>
+              <button id="loop" class="on">循环开</button>
+            </div>
+
+            <div class="buttons">
+              <button id="prevClip">‹ 上一段</button>
+              <button id="play" class="primary">▶ 播放</button>
+              <button id="restart">↻ 重播</button>
+              <button id="nextClip">下一段 ›</button>
+              <button id="sound" class="sound" aria-label="静音">🔊</button>
+            </div>
+          </div>
+        </section>
+
+        <aside>
+          <div class="panel-title">检测到的动画片段</div>
+          <div class="clip-list" id="clipList"></div>
+          <div class="notice"><b>原生版本：</b>无需 React、Vite、npm 或构建步骤。将文件上传到 GitHub 仓库即可通过 GitHub Pages 运行。</div>
+        </aside>
+      </div>
+    </div>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
