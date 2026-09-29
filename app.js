@@ -1,4 +1,3 @@
-const VIDEO_URL = "./video.mp4";
 const FPS = 30;
 const clips = [
   ["片头 / 普通绝杀", 0.00, 6.06], ["绝杀特效 02", 6.06, 11.60],
@@ -11,7 +10,7 @@ const clips = [
   ["绝杀特效 15", 78.93, 85.20], ["绝杀特效 16", 85.20, 89.57],
   ["绝杀特效 17", 89.57, 97.50], ["追加特效 18", 97.50, 103.23],
   ["追加特效 19", 103.23, 108.37], ["最后隐藏特效", 108.37, 115.215]
-].map(([name, start, end]) => ({ name, start, end }));
+].map(([name, start, end], index) => ({ name, start, end, file: `./clips/clip_${String(index + 1).padStart(2, "0")}.mp4` }));
 const speeds = [0.25, 0.5, 1, 1.5, 2];
 
 const $ = (id) => document.getElementById(id);
@@ -19,7 +18,7 @@ const video = $("video");
 const progress = $("progress");
 let index = 0, speed = 1, loop = true, raf = 0;
 
-video.src = VIDEO_URL;
+video.src = clips[0].file;
 
 function format(value) {
   const minutes = Math.floor(value / 60);
@@ -27,7 +26,7 @@ function format(value) {
   return `${String(minutes).padStart(2, "0")}:${seconds}`;
 }
 function clip() { return clips[index]; }
-function relativeTime() { return Math.max(0, video.currentTime - clip().start); }
+function relativeTime() { return Math.max(0, video.currentTime); }
 function frame() { return Math.floor(relativeTime() * FPS); }
 
 function updateUI() {
@@ -37,7 +36,7 @@ function updateUI() {
   $("clipNumber").textContent = String(index + 1).padStart(2, "0");
   $("clipTitle").textContent = item.name;
   $("frameBadge").textContent = `FRAME ${String(frame()).padStart(4, "0")}`;
-  $("currentTime").textContent = `${format(video.currentTime)} · 第 ${frame()} 帧`;
+  $("currentTime").textContent = `${format(clip().start + video.currentTime)} · 第 ${frame()} 帧`;
   $("clipRange").textContent = `${format(item.start)} – ${format(item.end)}`;
   $("play").textContent = video.paused ? "▶ 播放" : "❚❚ 暂停";
   $("centerPlay").textContent = video.paused ? "▶" : "❚❚";
@@ -46,13 +45,13 @@ function updateUI() {
 
 function monitor() {
   const item = clip();
-  if (video.currentTime >= item.end) {
+  if (video.currentTime >= item.end - item.start) {
     if (loop) {
-      video.currentTime = item.start;
+      video.currentTime = 0;
       video.play().catch(showError);
     } else {
       video.pause();
-      video.currentTime = item.end - 1 / FPS;
+      video.currentTime = item.end - item.start - 1 / FPS;
     }
   }
   updateUI();
@@ -62,7 +61,7 @@ function monitor() {
 async function play(restart = false) {
   const item = clip();
   cancelAnimationFrame(raf);
-  if (restart || video.currentTime < item.start || video.currentTime >= item.end) video.currentTime = item.start;
+  if (restart || video.currentTime < 0 || video.currentTime >= item.end - item.start) video.currentTime = 0;
   video.playbackRate = speed;
   try { await video.play(); raf = requestAnimationFrame(monitor); }
   catch (error) { showError(); }
@@ -71,11 +70,11 @@ function pause() { video.pause(); cancelAnimationFrame(raf); updateUI(); }
 function togglePlay() { video.paused ? play(false) : pause(); }
 function selectClip(next) {
   pause(); index = (next + clips.length) % clips.length;
-  video.currentTime = clip().start; progress.value = 0; updateUI();
+  video.src = clip().file; video.load(); progress.value = 0; updateUI();
 }
 function stepFrame(direction) {
   pause();
-  video.currentTime = Math.max(clip().start, Math.min(clip().end - 1 / FPS, video.currentTime + direction / FPS));
+  video.currentTime = Math.max(0, Math.min(clip().end - clip().start - 1 / FPS, video.currentTime + direction / FPS));
   updateUI();
 }
 function showError() { $("loading").classList.add("hidden"); $("errorBox").classList.remove("hidden"); }
@@ -94,7 +93,7 @@ video.addEventListener("canplay", () => { $("loading").classList.add("hidden"); 
 video.addEventListener("error", showError);
 video.addEventListener("play", updateUI);
 video.addEventListener("pause", updateUI);
-progress.addEventListener("input", () => { video.currentTime = clip().start + Number(progress.value) * (clip().end - clip().start); updateUI(); });
+progress.addEventListener("input", () => { video.currentTime = Number(progress.value) * (clip().end - clip().start); updateUI(); });
 $("play").addEventListener("click", togglePlay); $("centerPlay").addEventListener("click", togglePlay);
 $("restart").addEventListener("click", () => play(true));
 $("prevClip").addEventListener("click", () => selectClip(index - 1)); $("nextClip").addEventListener("click", () => selectClip(index + 1));
@@ -109,4 +108,4 @@ document.addEventListener("keydown", (event) => {
   if (event.code === "ArrowRight") stepFrame(1);
 });
 
-renderList(); video.currentTime = clips[0].start; updateUI();
+renderList(); video.currentTime = 0; updateUI();
