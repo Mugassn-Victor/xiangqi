@@ -13,6 +13,7 @@ const Net = (function () {
   let mqttSig = null;       // MQTT 会话：信令 + 消息中继共用连接
   let autoRole = null;      // 'host' | 'guest'（自动联机角色）
   let lastRoom = null;      // 最近的房间号（掉线恢复时重拨用）
+  let lastAs = null;        // 最近加入时的身份标记 'p'（客方总线重建敲门时带上）
   let p2pTimer = null;      // P2P 等待超时 → 降级中继
   let hbTimer = null;       // 中继模式心跳
   let lastHb = 0;
@@ -208,7 +209,15 @@ const Net = (function () {
         tr('bg-punch');
         mqttSig.ensureOffer();
       }
-      if (Date.now() - lastHb > HB_MAX) { clearHb(); peerGone = true; tr('hb-timeout age=' + (Date.now() - lastHb)); emit('closed'); }
+      if (Date.now() - lastHb > HB_MAX) {
+        clearHb();
+        // 已经判死过就不再重复上报（resume 会重启心跳，重复 emit 会让弹窗反复弹出）
+        if (!peerGone) {
+          peerGone = true;
+          tr('hb-timeout age=' + (Date.now() - lastHb));
+          emit('closed');
+        }
+      }
     }, HB_INT);
   }
 
@@ -256,6 +265,7 @@ const Net = (function () {
     awaitRole = false;
     inGame = false;   // 新建的是空房：清掉上一局残留，否则敲门者会被误问「缺位身份」
     lastRoom = roomId;
+    lastAs = null;
     peerSid = null;
     pendingData = [];
     startMqttSig(roomId, 'host');
@@ -270,6 +280,7 @@ const Net = (function () {
     settled = false;
     autoRole = 'guest';
     lastRoom = roomId;
+    lastAs = asPlayer ? 'p' : null;
     peerSid = null;
     pendingData = [];
     // 没明确要下棋就先等房主表态（'hi'=正常放行 / 'ask'=缺位先选身份），
@@ -296,6 +307,7 @@ const Net = (function () {
     autoRole = 'watch';
     awaitRole = false;
     lastRoom = roomId;
+    lastAs = null;
     peerSid = null;
     pendingData = [];
     startMqttSig(roomId, 'watch');
@@ -368,6 +380,10 @@ const Net = (function () {
     } else if (autoRole === 'host' && mqttSig.ensureOffer) {
       mqttSig.ensureOffer();
     }
+    // 中继判死时本地心跳已被清掉：不重启就只能干等对方先发，双方都判死
+    // 会互相等死（哪怕总线早已恢复也永远停在「对方掉线」）→ 重连轮询里把
+    // 心跳拉起，对方一收到即可互相复活并上报重连
+    if (settled && conn && conn._relay && autoRole !== 'watch') startHb();
     if (autoRole === 'guest' && peer && lastRoom) {
       try {
         const c = peer.connect(lastRoom, { reliable: true });
@@ -674,7 +690,17 @@ const Net = (function () {
         }, 2000);
         return;
       }
-      if (!st.done && !settled) stopMqttSig();
+      if (!st.done && !settled) {
+        // 客方掉总线（首连全败/加入中断）：只停不建会永远卡在加入倒计时里，
+        // 与房主对称延迟重建信令（身份标记一并带上，敲门才不会被误判成观战）
+        tr('mq-restart-guest settled=' + settled);
+        stopMqttSig();
+        setTimeout(function () {
+          if (!dead && !mqttSig && !settled && autoRole === 'guest' && lastRoom) {
+            startMqttSig(lastRoom, 'guest', lastAs);
+          }
+        }, 2000);
+      }
     };
     mq.connect();
 

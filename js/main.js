@@ -306,7 +306,13 @@
     switch (msg.t) {
       case 'move': {
         if (App.disconnected || App.phase !== 'playing') { Net.send({ t: 'sync-req' }); return; }
-        if (msg.ply !== App.history.length) { Net.send({ t: 'sync-req' }); return; }
+        if (msg.ply !== App.history.length) {
+          // 棋谱不同步：双方可能有一方刚重进。除了拉对方的，也把自己的推过去——
+          // 若旧棋谱只在我这边（对方开局的 sync-req 已丢），不推它就永远停在新局
+          Net.send({ t: 'sync', hist: App.history, swap: App.swapped });
+          Net.send({ t: 'sync-req' });
+          return;
+        }
         if (!App.state || !Rules.isLegal(App.state, currentTurn(), msg.from, msg.to)) {
           Net.send({ t: 'sync-req' });
           return;
@@ -320,6 +326,7 @@
       }
       case 'sync': {
         if (!Array.isArray(msg.hist)) return;
+        syncGot = true;   // 对方已应答棋谱请求（QoS0 下重试可以停了）
         const test = Rules.derive(msg.hist);
         if (!test) return;
         // 刷新重进后按对方棋谱带的互换标记恢复自己这一方（先应用再判长短，空棋谱也要能恢复）
@@ -571,6 +578,7 @@
 
   let fullHint = null;   // 上次「房间已有对战双方」的房号：填了昵称点加入即转观战
   let askRoom = null;    // 上次「对局进行中但缺人」的房号：回来的人要自选身份
+  let syncGot = false;   // 本次进房是否已收到对方对棋谱的确认回复（哪怕空棋谱也算）
 
   function joinRoom(forcePlayer) {
     const val = $('roomInput').value.trim();
@@ -1202,15 +1210,17 @@
       startGame(App.watch ? RED : sideForRole(info.role), !!info.relay);
       refreshVoice();
       // 请求棋谱：若对方是进行中的棋局（自己刚重新加入），会同步恢复局面
+      syncGot = false;
       Net.send({ t: 'sync-req' });
       // 有观战者进房：对局双方聊天区各出一条系统提示
       if (App.watch) Net.send({ t: 'watch-in', nm: App.watchNick || '' });
-      // 公共 broker 是 QoS0，sync-req 偶发丢失会让棋谱永远空着 → 恢复前重试
+      // 公共 broker 是 QoS0，sync-req/reply 偶发丢失会让棋谱永远空着（进去了是新局）：
+      // 持续重试直到对方确认（收到 sync 即停；拿到非空棋谱更早停），约 60 秒兜底
       let tries = 0;
       const iv = setInterval(function () {
-        if (App.history.length > 0 || ++tries > 3) { clearInterval(iv); return; }
+        if (App.history.length > 0 || syncGot || ++tries > 20) { clearInterval(iv); return; }
         Net.send({ t: 'sync-req' });
-      }, 2000);
+      }, 3000);
     });
 
     // P2P 打不通 → 已切到 broker 中继，对局继续
@@ -1234,6 +1244,9 @@
         backToButtons();
         return;
       }
+      // closed 可能重复触发（心跳超时 + 总线断开），只在首次断线时弹窗，
+      // 否则用户点过「等待重连」后弹窗会被下一次 closed 反复顶出来
+      const firstOff = !App.disconnected;
       App.disconnected = true;
       const ct = $('connTag');
       ct.textContent = '连接已断开';
@@ -1247,7 +1260,7 @@
       banner('对方掉线，棋局暂停，等待重新连线…');
       render();
       startResumeRetry();
-      if (App.phase !== 'over') {
+      if (firstOff && App.phase !== 'over') {
         modal('对方掉线', '对方离开了对局页面。对方重新进入同一房间号后，棋局会自动恢复。', [
           { label: '等待重连', primary: true, onClick: closeModal },
           { label: '返回大厅', onClick: leaveToLobby }
@@ -1315,6 +1328,8 @@
       toast(wasOff ? '对方已重新连线，对局继续' : '点对点直连已恢复');
       // 主动推棋谱：对方可能刚重新进入页面，其 sync-req 可能早于通道就绪被丢弃
       if (App.history.length) Net.send({ t: 'sync', hist: App.history, swap: App.swapped });
+      // 反过来：自己是刚恢复的一方且棋谱还空着 → 断线期间发的 sync-req 可能丢了，重新拉
+      else if (App.phase === 'playing') Net.send({ t: 'sync-req' });
     });
 
     Net.on('error', function (e) {
